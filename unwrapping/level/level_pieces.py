@@ -2,6 +2,7 @@
 
 import ctypes
 import itertools
+import os
 import time
 
 import numpy as np
@@ -32,7 +33,7 @@ from unwrapping.level.winding_order import best_curl
 HIDDEN = 0.5
 DRAWS = 8
 THREADS = 8
-DRAW_BYTES = 3e9
+DRAW_BYTES = float(os.environ.get("HERCULEX_DRAW_BYTES", "3e9"))
 UNITS = 64
 COARSE_STEP = 32
 SEED = 1
