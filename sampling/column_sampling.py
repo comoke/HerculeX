@@ -1,6 +1,8 @@
 """A surface from the unwrapping stage sampled along its normals into a layer stack of the raw scan."""
 
 import json
+import mmap
+import os
 import shutil
 import threading
 import time
@@ -28,6 +30,8 @@ BRIDGE_CELLS = 8
 RELAXATIONS = 40
 FOLD_CELLS = 3.0
 SAMPLING = f"mesh-bridged-{BRIDGE_CELLS}-smoothed-{MESH_SMOOTHING_CELLS}"
+# 1 asks the system to read the planes a surface will sample before the sampling threads reach them
+READ_AHEAD = os.environ.get("HERCULEX_READ_AHEAD", "1") == "1"
 
 
 def load_surface(folder):
@@ -180,6 +184,24 @@ class LayerStack:
         return self.cube[z[0] : z[1], y[0] : y[1], x[0] : x[1]]
 
 
+def read_ahead(data, store, offsets, xyz, normal, stride):
+    """Advise the system of every brick plane a surface's stack reads, so they arrive in large reads ahead of the faults."""
+    from sampling.touched_planes import mark_ranges
+
+    ranges = np.empty((*store.grid, 2), dtype=np.int32)
+    first, last = ranges[..., 0], ranges[..., 1]
+    first.fill(store.brick[0])
+    last.fill(-1)
+    mark_ranges(ranges, store, xyz, normal, stride)
+    chosen = (last >= 0) & (offsets >= 0)
+    plane, page, size = store.brick[1] * store.brick[2], mmap.PAGESIZE, len(data)
+    begins = offsets[chosen] + first[chosen].astype(np.int64) * plane
+    ends = np.minimum(offsets[chosen] + (last[chosen].astype(np.int64) + 1) * plane, size)
+    for begin, end in zip((begins // page * page).tolist(), ends.tolist()):
+        if end > begin:
+            data._mmap.madvise(mmap.MADV_WILLNEED, begin, end - begin)
+
+
 def flatten(xyz, stride, normal, store, *, layers=LAYERS):
     """The centred layer stack of a surface, tile by tile."""
     _, h, w = xyz.shape
@@ -191,6 +213,8 @@ def flatten(xyz, stride, normal, store, *, layers=LAYERS):
     offsets = store.offsets.copy()
     data = np.memmap(store.path, dtype=np.uint8, mode="r")
     geometry = np.array([*store.grid, *store.brick], dtype=np.int32)
+    if READ_AHEAD and layers == LAYERS and len(data):
+        read_ahead(data, store, offsets, xyz, normal, stride)
 
     def run(origin):
         ty, tx = origin
