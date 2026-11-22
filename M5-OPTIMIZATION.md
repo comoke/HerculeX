@@ -1,6 +1,6 @@
 # HerculeX on an Apple M5 Pro
 
-This fork of [HerculeX](https://github.com/adambetka2/HerculeX) by Adam Betka (stokarz) changes how HerculeX runs on an Apple M5 Pro. HerculeX is MIT-licensed, and its ink reader is Reader v3 by Domenico Russo. The fork's `main` branch is HerculeX at 9f59e96, unchanged; branch `m5` adds four commits. HerculeX's licence and copyright notice are kept in `LICENSE`, and the changes are under the same MIT licence. This fork is not part of HerculeX and is not endorsed by its author.
+This fork of [HerculeX](https://github.com/adambetka2/HerculeX) by Adam Betka (stokarz) changes how HerculeX runs on an Apple M5 Pro. HerculeX is MIT-licensed, and its ink reader is Reader v3 by Domenico Russo. Branch `m5` adds four commits to HerculeX at 9f59e96. HerculeX's licence and copyright notice are kept in `LICENSE`, and the changes are under the same MIT licence. This fork is not part of HerculeX and is not endorsed by its author.
 
 ## What changed
 
