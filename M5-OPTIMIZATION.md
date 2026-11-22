@@ -1,6 +1,6 @@
 # HerculeX on an Apple M5 Pro
 
-This fork of [HerculeX](https://github.com/adambetka2/HerculeX) by Adam Betka (stokarz) changes how HerculeX runs on an Apple M5 Pro. HerculeX is MIT-licensed, and its ink reader is Reader v3 by Domenico Russo. Branch `m5` adds four commits to HerculeX at 9f59e96. HerculeX's licence and copyright notice are kept in `LICENSE`, and the changes are under the same MIT licence. This fork is not part of HerculeX and is not endorsed by its author.
+This fork of [HerculeX](https://github.com/adambetka2/HerculeX) by Adam Betka (stokarz) changes how HerculeX runs on an Apple M5 Pro. HerculeX is MIT-licensed, and its ink reader is Reader v3 by Domenico Russo. Branch `m5` adds four code commits to HerculeX at 9f59e96, plus commits for this write-up and its evidence. HerculeX's licence and copyright notice are kept in `LICENSE`, and the changes are under the same MIT licence. This fork is not part of HerculeX and is not endorsed by its author.
 
 ## What changed
 
@@ -17,8 +17,8 @@ This fork of [HerculeX](https://github.com/adambetka2/HerculeX) by Adam Betka (s
 
 MacBook Pro, Apple M5 Pro (16-core GPU), 24 GB, macOS 27.0.1. Every number below is in [`CLAIMS.md`](CLAIMS.md) with its saved file in [`bench/evidence/`](bench/evidence/).
 
-- **Reading, like for like.** With stock's own 4 samplers, the initial reader commit (5b1576b) read a 404-piece unit in 59.6 s against stock's 70.0 s, 1.18×. Runs with 8 samplers aren't compared here, because stock wasn't timed with 8.
-- **The reader's maps are not bit-identical to stock's.** On the same captured inputs, the current reader matches stock's float ink maps at pooled r 0.99997–0.99998, worst single map r 0.99897, max abs diff 0.010–0.013 in ink probability (a 404-piece unit; the 48 largest pieces of a 6,236-piece unit).
+- **Reading, like for like.** With stock's own 4 samplers, the initial reader commit (5b1576b) read a 404-piece unit in 59.60 s against stock's 70.04 s, 1.18×, one run each. The current reader (1e72245) wasn't timed at 4 samplers, and runs with 8 samplers aren't compared here, because stock wasn't timed with 8.
+- **The reader's maps are not bit-identical to stock's.** In one check on the same captured inputs, the current reader (1e72245) matches stock's float ink maps at pooled r 0.99997–0.99998, worst single map r 0.99897, max abs diff 0.010–0.013 in ink probability (a 404-piece unit; the 48 largest pieces of a 6,236-piece unit). 5b1576b's maps have no saved comparison.
 - **Pieces.** With `HERCULEX_DRAW_BYTES=10e9`, a unit's 30,188 piece files were byte-identical to stock's (`record.json` aside). That unit's stock time wasn't saved, so no speedup is claimed.
 - **Read-ahead.** 48 of 48 sampled captures were byte-identical to stock's. No speed gain is claimed for it.
 
