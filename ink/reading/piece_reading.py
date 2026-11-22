@@ -66,7 +66,7 @@ SAMPLERS = int(os.environ.get("HERCULEX_SAMPLERS", "4"))
 # 1 keeps every unit's fetched CT store after its read, so the next read of the same units fetches only new bricks
 KEEP_BRICKS = os.environ.get("HERCULEX_KEEP_BRICKS") == "1"
 KEEP_STACKS = os.environ.get("HERCULEX_KEEP_STACKS") != "0"
-PIECES_AHEAD = 6 if len(SHIFTS) == 1 else 3
+PIECES_AHEAD = int(os.environ.get("HERCULEX_PIECES_AHEAD", "6" if len(SHIFTS) == 1 else "3"))
 WRITERS = 2
 SAME_OUTPUT = {
     current: set(earlier)

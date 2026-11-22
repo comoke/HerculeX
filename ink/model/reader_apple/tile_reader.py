@@ -1,6 +1,7 @@
 """The Apple lane's ink reader on 512-pixel tiles: the depth stem as one Metal kernel, the body on the Neural Engine."""
 
 import collections
+import os
 import queue
 import struct
 import threading
@@ -11,8 +12,9 @@ from pathlib import Path
 import numpy as np
 
 from ink.model import stock_model
-from ink.model.reader_apple.neural_engine import SIDE, EngineBody
+from ink.model.reader_apple.neural_engine import CPU_AND_GPU, SIDE, EngineBody
 from ink.model.tiles import (
+    DEPTH,
     STEM_CHANNELS,
     TILE,
     PreparedStack,
@@ -26,7 +28,17 @@ from ink.model.tiles import (
 
 TILES_AHEAD = 8
 ENGINE_CALLS = 2
+GPU_CALLS = 2
+PENDING = 10
 PAIR_GAP = 280
+# which unit reads each 512 tile's body, by the tile's place and data: E the Neural Engine, G the GPU
+LANES = os.environ.get("HERCULEX_BODY_LANES", "EEGEG")
+if not LANES or set(LANES) - set("EG"):
+    raise SystemExit(f"HERCULEX_BODY_LANES={LANES}: a pattern of E (Neural Engine) and G (GPU), such as EEGEG")
+PROBES = ((128, 128), (128, 384), (384, 128), (384, 384))
+# tensor: the stem on Metal 4 tensor operations (tensor_stem.metal); kernel: the one-pass kernel (depth_stem.metal)
+STEM = os.environ.get("HERCULEX_STEM", "tensor")
+ROOMS = 4
 
 
 class DepthStem:
@@ -60,15 +72,30 @@ class DepthStem:
     def statistics_of(self, tiles, scale):
         """Raw scale and folded stem weights of a stack, as a patch's own norms would take them but the same everywhere on it."""
         torch = self.torch
+        functional = torch.nn.functional
         with torch.inference_mode():
             features = self.module.features
-            image = scaled(torch.from_numpy(tiles).to(self.device), scale)[:, None]
-            first = features[0](image)
-            self.norms[0].measure(first)
-            second = features[3](features[2](self.norms[0](first)))
-            self.norms[1].measure(second)
+            image = scaled(torch.from_numpy(tiles).to(self.device), scale)
+            batch, depth, height, width = image.shape
+            padded = functional.pad(image, (0, 0, 0, 0, 1, 1))
+            stacked = torch.stack([padded[:, k : k + depth] for k in range(3)], 2).reshape(-1, 3, height, width)
+            first = functional.conv2d(stacked, features[0].weight, padding=1)
+            self.measure(self.norms[0], first)
+            scale_1, shift_1 = self.norms[0].scale_and_shift()
+            first = functional.leaky_relu(
+                first * scale_1.reshape(1, -1, 1, 1).to(first.dtype) + shift_1.reshape(1, -1, 1, 1).to(first.dtype),
+                features[2].negative_slope,
+            )
+            padded = functional.pad(first.reshape(batch, depth, -1, height, width), (0, 0, 0, 0, 0, 0, 1, 1))
+            stacked = torch.cat([padded[:, k : k + depth] for k in range(3)], 2).reshape(batch * depth, -1, height, width)
+            self.measure(self.norms[1], functional.conv2d(stacked, features[3].weight, padding=1))
         with torch.no_grad():
             return scale, stem_of(self.module)
+
+    def measure(self, norm, flat):
+        """A norm's statistics from a convolution's output with depth still in the batch."""
+        values = flat.float()
+        norm.mean, norm.variance = values.mean([0, 2, 3]), values.var([0, 2, 3], unbiased=False)
 
     def __call__(self, image, statistics):
         return self.features(self.kernel, image, statistics)
@@ -112,6 +139,61 @@ class DepthStem:
             yield tile
 
 
+class TensorStem(DepthStem):
+    """The stem on Metal 4 tensor operations: the kernel's arithmetic, its second convolution as matrix products."""
+
+    def __init__(self, module, device="mps"):
+        super().__init__(module, device)
+        self.tensor_kernel = self.torch.mps.compile_shader((Path(__file__).parent / "tensor_stem.metal").read_text())
+        self.rooms = collections.OrderedDict()
+
+    def room(self, batch, height, width):
+        """A zero-edged volume for the first convolution's output and the sizes of a batch of tiles, kept for its shape."""
+        key = (batch, height, width)
+        if key in self.rooms:
+            self.rooms.move_to_end(key)
+            return self.rooms[key]
+        torch = self.torch
+        padded = -(-width // 32) * 32 + 2
+        sizes = struct.pack("IIIIf", batch, height, width, padded, self.attention_bias)
+        while len(self.rooms) >= ROOMS:
+            self.rooms.popitem(last=False)
+        self.rooms[key] = (
+            torch.zeros(batch, DEPTH + 2, height + 2, padded, STEM_CHANNELS, device=self.device, dtype=torch.float16),
+            torch.tensor(np.frombuffer(sizes, dtype=np.int32).copy(), device=self.device),
+        )
+        return self.rooms[key]
+
+    def tiles(self, block, statistics, gap):
+        """Stem features for one tile, or for two cut from a block that holds both."""
+        torch = self.torch
+        if self.scale != statistics[0]:
+            self.scale = statistics[0]
+            self.table = scaled(torch.arange(256, dtype=torch.int32, device=self.device), self.scale)
+        images = np.stack([block[:, :, :TILE], block[:, :, gap : gap + TILE]]) if gap else block[None]
+        image = torch.from_numpy(np.ascontiguousarray(images, dtype=np.uint8)).to(self.device)
+        batch, _, height, width = image.shape
+        volume, sizes = self.room(batch, height, width)
+        first, first_bias, second, second_bias, attention = statistics[1]
+        out = torch.empty(batch, 2 * STEM_CHANNELS, height, width, device=self.device, dtype=torch.float16)
+        self.tensor_kernel.first_convolution(
+            image,
+            first,
+            first_bias,
+            self.table,
+            volume,
+            sizes,
+            threads=[width, height, batch * DEPTH],
+            group_size=[32, 1, 1],
+        )
+        groups = -(-width // 32) * (batch * height // 4)
+        self.tensor_kernel.second_convolution(
+            volume, second, second_bias, attention, out, sizes, threads=[groups * 128, 1, 1], group_size=[128, 1, 1]
+        )
+        for k in range(batch):
+            yield out[k : k + 1]
+
+
 def tile_groups(starts, pair):
     """Keep blend order while pairing close tiles, starting with the last (often closest) pair."""
     if not pair:
@@ -129,8 +211,13 @@ class TileReader:
         import torch
 
         self.torch, self.device, self.weights = torch, device, weights
-        self.stem = DepthStem(stock_model.taught_stem(weights, STEM_CHANNELS), device)
+        self.stem = (TensorStem if STEM == "tensor" else DepthStem)(stock_model.taught_stem(weights, STEM_CHANNELS), device)
         self.engine = EngineBody(weights, load_body=lambda: self.body)
+
+    @cached_property
+    def gpu_engine(self):
+        """The engine's own compiled body, read on the GPU."""
+        return EngineBody(self.weights, units=CPU_AND_GPU)
 
     @cached_property
     def body(self):
@@ -152,12 +239,20 @@ class TileReader:
     def maps(self, stacks):
         """Read each raw or prepared stack with its measurements, or None to reuse the last statistics."""
         tiles, stop, pending = queue.Queue(TILES_AHEAD), threading.Event(), collections.deque()
-        with ThreadPoolExecutor(1) as stem_thread, ThreadPoolExecutor(ENGINE_CALLS) as engine:
+        with (
+            ThreadPoolExecutor(1) as stem_thread,
+            ThreadPoolExecutor(ENGINE_CALLS) as engine,
+            ThreadPoolExecutor(GPU_CALLS) as gpu,
+        ):
+            lanes = {"E": (engine, self.engine), "G": (gpu, self.gpu_engine if "G" in LANES else None)}
             stems = stem_thread.submit(self.stems, stacks, tiles, stop)
             try:
-                for sums, place, features, on_engine in iter(tiles.get, None):
-                    pending.append((sums, place, engine.submit(self.ink_of, features) if on_engine else features))
-                    while pending and (len(pending) > ENGINE_CALLS or pending[0][1] is None):
+                for sums, place, features, lane in iter(tiles.get, None):
+                    if lane:
+                        pool, body = lanes[lane]
+                        features = pool.submit(self.ink_of, body, features)
+                    pending.append((sums, place, features))
+                    while pending and (len(pending) > PENDING or pending[0][1] is None):
                         yield from self.settled(pending)
                 while pending:
                     yield from self.settled(pending)
@@ -165,8 +260,8 @@ class TileReader:
                 stop.set()
             stems.result()
 
-    def ink_of(self, features):
-        return 1 / (1 + np.exp(-self.engine(features)))
+    def ink_of(self, body, features):
+        return 1 / (1 + np.exp(-body(features)))
 
     def settled(self, pending):
         """The oldest tile added to its map, always in tile order, or the map once its stack has no tile left."""
@@ -215,10 +310,10 @@ class TileReader:
                                 for at, features in zip(group, self.stem.tiles(block, self.fixed, last - x)):
                                     place = (y, at, h, min(w, tx))
                                     if on_engine:
-                                        send((sums, place, features.cpu().numpy(), True))
+                                        send((sums, place, features.cpu().numpy(), lane_of(whole, y, at)))
                                     else:
                                         read = torch.sigmoid(self.body(features)["ink"].float())[0, 0].cpu().numpy()
-                                        send((sums, place, read, False))
+                                        send((sums, place, read, None))
                     except Exception as error:
                         sums.failed = error
                     send((sums, None, None, None))
@@ -227,6 +322,15 @@ class TileReader:
 
     def fix_to(self, stack):
         self.fixed = self.stem.statistics(stack)
+
+
+def lane_of(stack, y, x):
+    """The unit that reads a 512 tile's body, fixed by where the tile is and what it holds, whatever the order of reads."""
+    if len(LANES) == 1:
+        return LANES
+    _, height, width = stack.shape
+    probe = sum(int(stack[DEPTH // 2, min(y + a, height - 1), min(x + b, width - 1)]) for a, b in PROBES)
+    return LANES[(y // 128 + 3 * (x // 128) + probe) % len(LANES)]
 
 
 def stem_of(stem):
