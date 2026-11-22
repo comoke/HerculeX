@@ -146,6 +146,55 @@ class TensorStem(DepthStem):
         super().__init__(module, device)
         self.tensor_kernel = self.torch.mps.compile_shader((Path(__file__).parent / "tensor_stem.metal").read_text())
         self.rooms = collections.OrderedDict()
+        features = self.module.features
+        with self.torch.no_grad():
+            self.raw_first = features[0].weight.float().reshape(16, 27).t().contiguous().half()
+            self.raw_second = (
+                features[3].weight.float().reshape(16, 3, 16, 3, 3).permute(1, 3, 4, 2, 0).reshape(27, 16, 16).contiguous().half()
+            )
+
+    def statistics_of(self, tiles, scale):
+        """DepthStem's statistics, measured by the tensor kernels: each convolution's output summed per column on the GPU."""
+        torch = self.torch
+        with torch.inference_mode():
+            if self.scale != scale:
+                self.scale = scale
+                self.table = scaled(torch.arange(256, dtype=torch.int32, device=self.device), scale)
+            image = torch.from_numpy(np.ascontiguousarray(tiles, dtype=np.uint8)).to(self.device)
+            batch, depth, height, width = image.shape
+            volume, sizes = self.room(batch, height, width)
+            columns, count = batch * height * width, batch * depth * height * width
+            sums = torch.empty(columns, 2 * STEM_CHANNELS, device=self.device, dtype=torch.float32)
+            self.tensor_kernel.first_statistics(
+                image, self.raw_first, self.table, sums, sizes, threads=[width, height, batch], group_size=[32, 1, 1]
+            )
+            self.measured(self.norms[0], sums, count)
+            scale_1, shift_1 = self.norms[0].scale_and_shift()
+            first = self.module.features[0].weight.float().reshape(16, 3, 1, 3, 3)[:, :, 0] * scale_1.reshape(-1, 1, 1, 1)
+            self.tensor_kernel.first_convolution(
+                image,
+                first.permute(1, 2, 3, 0).reshape(27, 16).contiguous().half(),
+                shift_1.half(),
+                self.table,
+                volume,
+                sizes,
+                threads=[width, height, batch * DEPTH],
+                group_size=[32, 1, 1],
+            )
+            sums = torch.empty(columns, 2 * STEM_CHANNELS, device=self.device, dtype=torch.float32)
+            groups = -(-width // 32) * -(-batch * height // 4)
+            self.tensor_kernel.second_statistics(
+                volume, self.raw_second, sums, sizes, threads=[groups * 128, 1, 1], group_size=[128, 1, 1]
+            )
+            self.measured(self.norms[1], sums, count)
+        with torch.no_grad():
+            return scale, stem_of(self.module)
+
+    def measured(self, norm, sums, count):
+        """A norm's mean and variance from per-column sums and sums of squares."""
+        total = sums.sum(0)
+        norm.mean = total[:STEM_CHANNELS] / count
+        norm.variance = total[STEM_CHANNELS:] / count - norm.mean * norm.mean
 
     def room(self, batch, height, width):
         """A zero-edged volume for the first convolution's output and the sizes of a batch of tiles, kept for its shape."""
