@@ -9,9 +9,9 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 sys.path.insert(0, os.getcwd())
-from ink.model import models, stock_model  # noqa: E402
-from ink.model.reader_apple import neural_engine as ne  # noqa: E402
-from ink.model.tiles import DEPTH, STEM_CHANNELS  # noqa: E402
+from ink.model import models, stock_model
+from ink.model.reader_apple import neural_engine as ne
+from ink.model.tiles import DEPTH, STEM_CHANNELS
 
 weights = models.chosen().weights
 path = ne.package_of(weights).with_name(ne.package_of(weights).stem + "-whole.mlpackage")
@@ -34,10 +34,16 @@ for name, units in {"cpuAndNeuralEngine": 3, "cpuAndGPU": 1, "all": 2}.items():
         engine = calls.hx_engine_open(str(path).encode(), str(path.with_suffix(".mlmodelc")).encode(), units, special)
         opened = time.perf_counter() - t
 
-        def run(_):
+        def run(_, engine=engine):
             logits = np.empty((ne.SIDE, ne.SIDE), dtype=np.float16)
             failed = calls.hx_engine_whole(
-                ctypes.c_void_p(engine), image.ctypes.data, DEPTH, norms.ctypes.data, STEM_CHANNELS, ne.SIDE, logits.ctypes.data
+                ctypes.c_void_p(engine),
+                image.ctypes.data,
+                DEPTH,
+                norms.ctypes.data,
+                STEM_CHANNELS,
+                ne.SIDE,
+                logits.ctypes.data,
             )
             assert not failed, failed
             return logits

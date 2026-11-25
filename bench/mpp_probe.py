@@ -1,5 +1,6 @@
-import torch, sys
-src = r'''
+import torch
+
+src = r"""
 #include <metal_stdlib>
 #include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
 using namespace metal;
@@ -10,7 +11,7 @@ kernel void probe(device float *out [[buffer(0)]], uint tid [[thread_position_in
     out[tid] = float(__METAL_VERSION__);
 #endif
 }
-'''
+"""
 try:
     k = torch.mps.compile_shader(src)
     out = torch.zeros(4, device="mps")

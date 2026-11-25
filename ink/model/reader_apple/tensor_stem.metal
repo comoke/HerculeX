@@ -43,8 +43,8 @@ kernel void first_convolution(device const uchar *image [[buffer(0)]], device co
 kernel void second_convolution(device half *a [[buffer(0)]], device half *second [[buffer(1)]],
                                device const half *second_bias [[buffer(2)]], device const half *attention [[buffer(3)]],
                                device half *out [[buffer(4)]], constant Dims &d [[buffer(5)]],
-                               uint3 group [[threadgroup_position_in_grid]], uint simd [[simdgroup_index_in_threadgroup]],
-                               uint lane [[thread_index_in_simdgroup]]) {
+                               uint3 group [[threadgroup_position_in_grid]],
+                               uint simd [[simdgroup_index_in_threadgroup]], uint lane [[thread_index_in_simdgroup]]) {
     threadgroup half staged[ROWS * SM * C];
     constexpr auto mode = matmul2d_descriptor::mode::multiply_accumulate;
     constexpr auto description = matmul2d_descriptor(SM, C, 3 * C, false, false, false, mode);
@@ -79,7 +79,8 @@ kernel void second_convolution(device half *a [[buffer(0)]], device half *second
             for (int dy = 0; dy < 3; dy++) {
                 auto left = tensor(volume + (z + dz) * pitch_z + (y + dy) * pitch_y, dextents<int, 2>{3 * C, SM},
                                    array<int, 2>{1, C});
-                auto right = tensor(second + (dz * 3 + dy) * 3 * C * C, dextents<int, 2>{C, 3 * C}, array<int, 2>{1, C});
+                auto right =
+                    tensor(second + (dz * 3 + dy) * 3 * C * C, dextents<int, 2>{C, 3 * C}, array<int, 2>{1, C});
                 product.run(left, right, sums);
             }
 #pragma clang loop unroll(full)
@@ -151,8 +152,8 @@ kernel void first_statistics(device const uchar *image [[buffer(0)]], device con
 // The same for the second convolution, over the first's output in its zero-edged volume.
 kernel void second_statistics(device half *a [[buffer(0)]], device half *second [[buffer(1)]],
                               device float *out [[buffer(2)]], constant Dims &d [[buffer(3)]],
-                              uint3 group [[threadgroup_position_in_grid]], uint simd [[simdgroup_index_in_threadgroup]],
-                              uint lane [[thread_index_in_simdgroup]]) {
+                              uint3 group [[threadgroup_position_in_grid]],
+                              uint simd [[simdgroup_index_in_threadgroup]], uint lane [[thread_index_in_simdgroup]]) {
     threadgroup half staged[ROWS * SM * C];
     constexpr auto mode = matmul2d_descriptor::mode::multiply_accumulate;
     constexpr auto description = matmul2d_descriptor(SM, C, 3 * C, false, false, false, mode);
@@ -182,7 +183,8 @@ kernel void second_statistics(device half *a [[buffer(0)]], device half *second 
             for (int dy = 0; dy < 3; dy++) {
                 auto left = tensor(volume + (z + dz) * pitch_z + (y + dy) * pitch_y, dextents<int, 2>{3 * C, SM},
                                    array<int, 2>{1, C});
-                auto right = tensor(second + (dz * 3 + dy) * 3 * C * C, dextents<int, 2>{C, 3 * C}, array<int, 2>{1, C});
+                auto right =
+                    tensor(second + (dz * 3 + dy) * 3 * C * C, dextents<int, 2>{C, 3 * C}, array<int, 2>{1, C});
                 product.run(left, right, sums);
             }
 #pragma clang loop unroll(full)

@@ -87,7 +87,9 @@ class DepthStem:
                 features[2].negative_slope,
             )
             padded = functional.pad(first.reshape(batch, depth, -1, height, width), (0, 0, 0, 0, 0, 0, 1, 1))
-            stacked = torch.cat([padded[:, k : k + depth] for k in range(3)], 2).reshape(batch * depth, -1, height, width)
+            stacked = torch.cat([padded[:, k : k + depth] for k in range(3)], 2).reshape(
+                batch * depth, -1, height, width
+            )
             self.measure(self.norms[1], functional.conv2d(stacked, features[3].weight, padding=1))
         with torch.no_grad():
             return scale, stem_of(self.module)
@@ -150,7 +152,13 @@ class TensorStem(DepthStem):
         with self.torch.no_grad():
             self.raw_first = features[0].weight.float().reshape(16, 27).t().contiguous().half()
             self.raw_second = (
-                features[3].weight.float().reshape(16, 3, 16, 3, 3).permute(1, 3, 4, 2, 0).reshape(27, 16, 16).contiguous().half()
+                features[3]
+                .weight.float()
+                .reshape(16, 3, 16, 3, 3)
+                .permute(1, 3, 4, 2, 0)
+                .reshape(27, 16, 16)
+                .contiguous()
+                .half()
             )
 
     def statistics_of(self, tiles, scale):
@@ -170,7 +178,9 @@ class TensorStem(DepthStem):
             )
             self.measured(self.norms[0], sums, count)
             scale_1, shift_1 = self.norms[0].scale_and_shift()
-            first = self.module.features[0].weight.float().reshape(16, 3, 1, 3, 3)[:, :, 0] * scale_1.reshape(-1, 1, 1, 1)
+            first = self.module.features[0].weight.float().reshape(16, 3, 1, 3, 3)[:, :, 0] * scale_1.reshape(
+                -1, 1, 1, 1
+            )
             self.tensor_kernel.first_convolution(
                 image,
                 first.permute(1, 2, 3, 0).reshape(27, 16).contiguous().half(),
@@ -260,7 +270,9 @@ class TileReader:
         import torch
 
         self.torch, self.device, self.weights = torch, device, weights
-        self.stem = (TensorStem if STEM == "tensor" else DepthStem)(stock_model.taught_stem(weights, STEM_CHANNELS), device)
+        self.stem = (TensorStem if STEM == "tensor" else DepthStem)(
+            stock_model.taught_stem(weights, STEM_CHANNELS), device
+        )
         self.engine = EngineBody(weights, load_body=lambda: self.body)
 
     @cached_property

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared settings for the M5 benchmarks. Source it.
 export M5=$HOME/Workspace/herculex-m5
 export STOCK=$HOME/Workspace/herculex-m5-stock

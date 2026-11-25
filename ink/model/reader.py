@@ -8,7 +8,8 @@ HERE = Path(__file__).parent
 SHARED = (HERE / "tiles.py", HERE / "tile_filling.c")
 if APPLE:
     LANE_SOURCES = tuple(
-        HERE / "reader_apple" / name for name in ("tile_reader.py", "depth_stem.metal", "tensor_stem.metal", "neural_engine.py")
+        HERE / "reader_apple" / name
+        for name in ("tile_reader.py", "depth_stem.metal", "tensor_stem.metal", "neural_engine.py")
     )
 else:
     LANE_SOURCES = (HERE / "reader_cuda" / "tile_reader.py",)

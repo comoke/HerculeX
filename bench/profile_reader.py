@@ -96,7 +96,11 @@ if mode == "pipelined":
     for lane in "ESG":
         mine = [(a, b) for name, a, b in spans if name == lane]
         if mine:
-            out[f"lane_{lane}"] = {"calls": len(mine), "busy_s": round(sum(b - a for a, b in mine), 2), "mean_ms": round(1000 * sum(b - a for a, b in mine) / len(mine), 2)}
+            out[f"lane_{lane}"] = {
+                "calls": len(mine),
+                "busy_s": round(sum(b - a for a, b in mine), 2),
+                "mean_ms": round(1000 * sum(b - a for a, b in mine) / len(mine), 2),
+            }
     if n:
         sa, sb, saa, sbb, sab = sums
         r = (sab - sa * sb / n) / np.sqrt((saa - sa * sa / n) * (sbb - sb * sb / n))
@@ -186,4 +190,6 @@ print(f"\nserial reader wall {wall:.1f} s, {len(pieces)} pieces, {count} stacks"
 for k in sorted(T, key=T.get, reverse=True):
     print(f"{T[k]:9.2f} s  {100 * T[k] / wall:5.1f} %  n={N[k]:6d}  {1000 * T[k] / max(N[k], 1):8.2f} ms each  {k}")
 print({k: v for k, v in N.items() if k not in T})
-(cache / "reader_profile_serial.json").write_text(json.dumps({"wall": wall, "ops": dict(T), "counts": dict(N)}, indent=1))
+(cache / "reader_profile_serial.json").write_text(
+    json.dumps({"wall": wall, "ops": dict(T), "counts": dict(N)}, indent=1)
+)

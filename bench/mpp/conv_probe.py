@@ -1,10 +1,12 @@
 """Fused MPP conv: 3x3x3, 16->16 channels over a zero-haloed NHWC half volume, 9 accumulating matmuls (K=48) per tile
 into a cooperative float tensor, stored once as half. Checked against numpy, then timed on 17x512x512 (30.8 GMAC)."""
+
 import time
+
 import numpy as np
 import torch
 
-SRC = r'''
+SRC = r"""
 #include <metal_stdlib>
 #include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
 using namespace metal;
@@ -41,16 +43,20 @@ kernel void conv(device half *a [[buffer(0)]], device half *w [[buffer(1)]], dev
     auto mD = tensor(d + ((size_t(z) * H + y) * W + x0) * 16, dextents<int, 2>{16, SM}, array<int, 2>{1, 16});
     narrow.store(mD);
 }
-'''
+"""
 sync = torch.mps.synchronize
+
 
 def run(sm, simds, a, w, d, depth, height, width):
     k = torch.mps.compile_shader(SRC.replace("SIMDS", str(simds)).replace("SM", str(sm)))
     dims = torch.tensor(np.array([depth, height, width], dtype=np.int32), device="mps")
     groups = (width // sm) * (depth * height // simds)
+
     def go():
         k.conv(a, w, d, dims, threads=[groups * simds * 32, 1, 1], group_size=[simds * 32, 1, 1])
+
     return go
+
 
 rng = np.random.default_rng(0)
 Z, H, W = 3, 64, 64
@@ -67,7 +73,10 @@ a, w = torch.from_numpy(a_np).to("mps"), torch.from_numpy(w_np).to("mps")
 d = torch.zeros(Z, H, W, 16, device="mps", dtype=torch.float16)
 run(32, 4, a, w, d, Z, H, W)()
 got = d.cpu().numpy()
-print(f"check: max abs err {np.abs(got.astype(np.float64) - want).max():.5f} (values up to {np.abs(want).max():.1f}), equal to correctly rounded half: {np.mean(got == want.astype(np.float16)):.5f}", flush=True)
+print(
+    f"check: max abs err {np.abs(got.astype(np.float64) - want).max():.5f} (values up to {np.abs(want).max():.1f}), equal to correctly rounded half: {np.mean(got == want.astype(np.float16)):.5f}",
+    flush=True,
+)
 
 Z, H, W = 17, 512, 512
 a = torch.randn(Z + 2, H + 2, W + 2, 16, device="mps", dtype=torch.float16)
@@ -78,10 +87,15 @@ for sm, simds in ((32, 4), (32, 8), (64, 4), (16, 4), (32, 2), (32, 16), (64, 8)
         go = run(sm, simds, a, w, d, Z, H, W)
         for _ in range(2):
             go()
-        sync(); t = time.perf_counter()
+        sync()
+        t = time.perf_counter()
         for _ in range(5):
             go()
-        sync(); dt = (time.perf_counter() - t) / 5
-        print(f"SM={sm:3d} simdgroups per threadgroup={simds:2d}: {1000 * dt:6.2f} ms per tile = {30.8 / dt / 1000:5.2f} TMAC/s", flush=True)
+        sync()
+        dt = (time.perf_counter() - t) / 5
+        print(
+            f"SM={sm:3d} simdgroups per threadgroup={simds:2d}: {1000 * dt:6.2f} ms per tile = {30.8 / dt / 1000:5.2f} TMAC/s",
+            flush=True,
+        )
     except Exception as e:
         print(f"SM={sm} simds={simds}: FAILED {repr(e)[:500]}", flush=True)

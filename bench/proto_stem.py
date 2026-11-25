@@ -10,12 +10,12 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, os.getcwd())
-import torch  # noqa: E402
-from torch.nn import functional as F  # noqa: E402
+import torch
+from torch.nn import functional as F
 
-from ink.model import models  # noqa: E402
-from ink.model.reader import lane_reader  # noqa: E402
-from ink.model.tiles import scaled  # noqa: E402
+from ink.model import models
+from ink.model.reader import lane_reader
+from ink.model.tiles import scaled
 
 cache = Path(sys.argv[1])
 reader = lane_reader(models.chosen().weights)
@@ -34,13 +34,17 @@ def weights_of(fixed):
 def stem_a(block, fixed, table, bias, layout=None):
     """Stacked: depth neighbours as channels, one conv per layer (48 -> 16)."""
     w1, b1, w2, b2, att = weights_of(fixed)
-    z, h, w = block.shape
+    z, _, _ = block.shape
     x = table[block.long()]  # [z, h, w] half
     xp = F.pad(x, (0, 0, 0, 0, 1, 1))
     s1 = torch.stack([xp[k : k + z] for k in range(3)], 1)  # [z, 3, h, w]
     k2 = w2.reshape(16, 48, 3, 3)
     if layout:
-        s1, w1, k2 = s1.contiguous(memory_format=layout), w1.contiguous(memory_format=layout), k2.contiguous(memory_format=layout)
+        s1, w1, k2 = (
+            s1.contiguous(memory_format=layout),
+            w1.contiguous(memory_format=layout),
+            k2.contiguous(memory_format=layout),
+        )
     a = F.leaky_relu(F.conv2d(s1, w1, b1, padding=1), 0.01)
     ap = F.pad(a, (0, 0, 0, 0, 0, 0, 1, 1))
     s2 = torch.cat([ap[k : k + z] for k in range(3)], 1)  # [z, 48, h, w]
@@ -51,12 +55,16 @@ def stem_a(block, fixed, table, bias, layout=None):
 def stem_b(block, fixed, table, bias, layout=None):
     """Fan-out: one conv 16 -> 48 over each layer, then the three depth taps added with a shift."""
     w1, b1, w2, b2, att = weights_of(fixed)
-    z, h, w = block.shape
+    z, _, _ = block.shape
     x = table[block.long()][:, None]  # [z, 1, h, w]
     k1 = w1.reshape(48, 1, 3, 3) if False else w1.permute(1, 0, 2, 3).reshape(48, 1, 3, 3)  # [dz*16+out, 1, 3, 3]
     k2 = w2.permute(1, 0, 2, 3, 4).reshape(48, 16, 3, 3)  # [dz*16+out, in, 3, 3]
     if layout:
-        x, k1, k2 = x.contiguous(memory_format=layout), k1.contiguous(memory_format=layout), k2.contiguous(memory_format=layout)
+        x, k1, k2 = (
+            x.contiguous(memory_format=layout),
+            k1.contiguous(memory_format=layout),
+            k2.contiguous(memory_format=layout),
+        )
 
     def taps(y):
         y = F.pad(y, (0, 0, 0, 0, 0, 0, 1, 1))  # depth padded: index z+1 is layer z
@@ -122,4 +130,7 @@ with torch.inference_mode():
             d = np.abs(got - want)
             worst, mean = max(worst, float(d.max())), mean + float(d.mean()) / len(rows)
             rel = max(rel, float(d.max() / np.abs(want).max()))
-        print(f"{name:48s} {ms:6.2f} ms/tile | vs stock kernel features: max abs {worst:.4f} mean abs {mean:.6f} (features up to {np.abs(want).max():.1f})", flush=True)
+        print(
+            f"{name:48s} {ms:6.2f} ms/tile | vs stock kernel features: max abs {worst:.4f} mean abs {mean:.6f} (features up to {np.abs(want).max():.1f})",
+            flush=True,
+        )

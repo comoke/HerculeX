@@ -60,6 +60,7 @@ class StandInStem:
 def stand_in_reader(engine):
     reader = tile_reader.TileReader.__new__(tile_reader.TileReader)
     reader.torch, reader.device, reader.stem, reader.engine = torch, "cpu", StandInStem(), engine
+    reader.weights, reader.gpu_engine = None, engine
     reader.body = lambda features: {"ink": features.float().mean(1, keepdim=True) * 0.2}
     return reader
 

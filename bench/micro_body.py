@@ -9,8 +9,8 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 sys.path.insert(0, os.getcwd())
-from ink.model import models  # noqa: E402
-from ink.model.reader_apple.neural_engine import CHANNELS, SIDE, EngineBody  # noqa: E402
+from ink.model import models
+from ink.model.reader_apple.neural_engine import CHANNELS, SIDE, EngineBody
 
 calls = int(sys.argv[1]) if len(sys.argv) > 1 else 40
 weights = models.chosen().weights
@@ -34,11 +34,13 @@ for name, units in UNITS.items():
         n = calls if name != "cpuOnly" else 6
         with ThreadPoolExecutor(workers) as pool:
             t = time.perf_counter()
-            list(pool.map(lambda k: body(features[k % 4]), range(n)))
+            list(pool.map(lambda k, body=body: body(features[k % 4]), range(n)))
             dt = time.perf_counter() - t
         line += f"  {workers} at once: {1000 * dt / n:6.2f} ms/tile"
     print(line, flush=True)
 base = outputs["cpuAndNeuralEngine"]
 for name, out in outputs.items():
     d = np.abs(out - base)
-    print(f"{name:20s} vs engine logits: max abs diff {d.max():.4f}, mean {d.mean():.5f}, r {np.corrcoef(out.ravel(), base.ravel())[0, 1]:.8f}")
+    print(
+        f"{name:20s} vs engine logits: max abs diff {d.max():.4f}, mean {d.mean():.5f}, r {np.corrcoef(out.ravel(), base.ravel())[0, 1]:.8f}"
+    )

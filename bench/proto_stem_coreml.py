@@ -11,13 +11,13 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, os.getcwd())
-import coremltools as ct  # noqa: E402
-import torch  # noqa: E402
-from torch.nn import functional as F  # noqa: E402
+import coremltools as ct
+import torch
+from torch.nn import functional as F
 
-from ink.model import models, stock_model  # noqa: E402
-from ink.model.reader import lane_reader  # noqa: E402
-from ink.model.tiles import STEM_CHANNELS  # noqa: E402
+from ink.model import models, stock_model
+from ink.model.reader import lane_reader
+from ink.model.tiles import STEM_CHANNELS
 
 cache, out_dir = Path(sys.argv[1]), Path(sys.argv[2])
 out_dir.mkdir(parents=True, exist_ok=True)
@@ -26,7 +26,9 @@ reader = lane_reader(weights)
 kernel_stem = reader.stem
 
 # the trained stem, float32 on CPU, raw (unfolded) weights
-raw = stock_model.taught_stem(weights, STEM_CHANNELS)  # features[0], [3] are Folded modules holding conv2d-shaped weights
+raw = stock_model.taught_stem(
+    weights, STEM_CHANNELS
+)  # features[0], [3] are Folded modules holding conv2d-shaped weights
 w1 = raw.features[0].weight.detach().float()  # [16, 3*1, 3, 3]  (out, dz*in, dy, dx)
 w2 = raw.features[3].weight.detach().float()  # [16, 3*16, 3, 3]
 att_w = raw.attention_logits.weight.detach().float().reshape(1, 16, 1, 1)
@@ -37,7 +39,9 @@ print("weights", tuple(w1.shape), tuple(w2.shape), flush=True)
 class Conv3dStem(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.register_buffer("k1", w1.reshape(16, 3, 1, 3, 3).permute(0, 2, 1, 3, 4).contiguous())  # [out, in, dz, dy, dx]
+        self.register_buffer(
+            "k1", w1.reshape(16, 3, 1, 3, 3).permute(0, 2, 1, 3, 4).contiguous()
+        )  # [out, in, dz, dy, dx]
         self.register_buffer("k2", w2.reshape(16, 3, 16, 3, 3).permute(0, 2, 1, 3, 4).contiguous())
         self.register_buffer("aw", att_w.reshape(1, 16, 1, 1, 1))
         self.register_buffer("ab", att_b)
@@ -98,7 +102,10 @@ def norms_of(fixed_module_norms):
     parts = []
     for norm in fixed_module_norms:
         scale, shift = norm.scale_and_shift()
-        parts += [scale.float().cpu().numpy().reshape(1, 16, 1, 1).astype(np.float16), shift.float().cpu().numpy().reshape(1, 16, 1, 1).astype(np.float16)]
+        parts += [
+            scale.float().cpu().numpy().reshape(1, 16, 1, 1).astype(np.float16),
+            shift.float().cpu().numpy().reshape(1, 16, 1, 1).astype(np.float16),
+        ]
     return parts
 
 
@@ -114,7 +121,10 @@ with torch.inference_mode():
         with torch.no_grad():
             norms = norms_of(kernel_stem.norms)
         low, high, centre, spread = fixed[0]
-        grey = ((np.clip(np.arange(256, dtype=np.float32), low, high).astype(np.float16) - np.float16(centre)) / np.float16(spread)).astype(np.float16)
+        grey = (
+            (np.clip(np.arange(256, dtype=np.float32), low, high).astype(np.float16) - np.float16(centre))
+            / np.float16(spread)
+        ).astype(np.float16)
         y, x = (values.shape[1] - 512) // 2, (values.shape[2] - 512) // 2
         block = np.ascontiguousarray(values[:, y : y + 512, x : x + 512])
         want = next(iter(kernel_stem.tiles(block, fixed, 0))).float().cpu().numpy()
@@ -123,16 +133,18 @@ with torch.inference_mode():
 for name, module in (("conv3d", Conv3dStem()), ("folded", FoldedStem())):
     try:
         path = converted(name, module)
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:
         print(name, "conversion failed:", repr(error)[:300], flush=True)
         continue
     for units_name, units in (("GPU", ct.ComputeUnit.CPU_AND_GPU), ("Neural Engine", ct.ComputeUnit.CPU_AND_NE)):
         try:
             model = ct.models.MLModel(str(path), compute_units=units)
 
-            def run(k):
+            def run(k, model=model):
                 image, norms, _ = rows[k % len(rows)]
-                return model.predict({"image": image, "scale_1": norms[0], "shift_1": norms[1], "scale_2": norms[2], "shift_2": norms[3]})["features"]
+                return model.predict(
+                    {"image": image, "scale_1": norms[0], "shift_1": norms[1], "scale_2": norms[2], "shift_2": norms[3]}
+                )["features"]
 
             for _ in range(3):
                 run(0)
@@ -147,5 +159,5 @@ for name, module in (("conv3d", Conv3dStem()), ("folded", FoldedStem())):
                 d = np.abs(run(k).astype(np.float32) - want)
                 worst, mean = max(worst, float(d.max())), mean + float(d.mean()) / len(rows)
             print(f"{line} | vs stock kernel features: max abs {worst:.4f} mean abs {mean:.6f}", flush=True)
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             print(name, units_name, "failed:", repr(error)[:300], flush=True)

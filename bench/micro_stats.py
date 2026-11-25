@@ -1,28 +1,41 @@
 """Where statistics_of's 40 ms goes. Run from a checkout root."""
-import os, pickle, sys, time
+
+import os
+import pickle
+import sys
+import time
 from pathlib import Path
-import numpy as np
+
 sys.path.insert(0, os.getcwd())
 import torch
+
 from ink.model import models
 from ink.model.reader import lane_reader
 from ink.model.reader_apple.tile_reader import stem_of
 from ink.model.tiles import scaled
 
 cache = Path(sys.argv[1])
-piece = pickle.load(open(sorted(cache.glob("*.pkl"))[0], "rb"))
+piece = pickle.load(open(min(cache.glob("*.pkl")), "rb"))
 measure = next(m for _, m in piece["stacks"] if m is not None)
 reader = lane_reader(models.chosen().weights)
 stem, sync = reader.stem, torch.mps.synchronize
 tiles, scale = measure
 print("measure tiles", tiles.shape, tiles.dtype, flush=True)
 T = {}
+
+
 def clock(name, fn, n=20):
-    for _ in range(3): fn()
-    sync(); t = time.perf_counter()
-    for _ in range(n): out = fn()
-    sync(); T[name] = 1000 * (time.perf_counter() - t) / n
+    for _ in range(3):
+        fn()
+    sync()
+    t = time.perf_counter()
+    for _ in range(n):
+        out = fn()
+    sync()
+    T[name] = 1000 * (time.perf_counter() - t) / n
     return out
+
+
 with torch.inference_mode():
     f = stem.module.features
     clock("whole statistics_of", lambda: stem.statistics_of(tiles, scale))

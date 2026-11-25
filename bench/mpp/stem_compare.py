@@ -1,12 +1,20 @@
 """The tensor-op stem against the one-pass kernel on real tiles: feature agreement and time per tile. Run in the m5 checkout."""
-import os, pickle, sys, time
+
+import os
+import pickle
+import sys
+import time
 from pathlib import Path
+
 import numpy as np
+
 sys.path.insert(0, os.getcwd())
 import torch
+
 from ink.model import models, stock_model
 from ink.model.reader_apple.tile_reader import DepthStem, TensorStem
 from ink.model.tiles import STEM_CHANNELS
+
 cache = Path(sys.argv[1])
 weights = models.chosen().weights
 old = DepthStem(stock_model.taught_stem(weights, STEM_CHANNELS))
@@ -36,15 +44,21 @@ with torch.inference_mode():
             for x, y in zip(a, b):
                 d = np.abs(x - y)
                 worst, total, count = max(worst, float(d.max())), total + float(d.sum()), count + d.size
-                same += int((x == y).sum()); n += 1
+                same += int((x == y).sum())
+                n += 1
             if gap == 0 and block.shape[1:] == (512, 512):
                 blocks.append((block, fixed, fixed_new))
-    print(f"{n} tiles (singles, pairs, small): max abs diff {worst:.5f}, mean abs diff {total / count:.7f}, identical elements {same / count:.5f}", flush=True)
+    print(
+        f"{n} tiles (singles, pairs, small): max abs diff {worst:.5f}, mean abs diff {total / count:.7f}, identical elements {same / count:.5f}",
+        flush=True,
+    )
     for name, stem, k in (("one-pass kernel (stock)", old, 1), ("tensor-op stem", new, 2)):
         for _ in range(3):
             list(stem.tiles(blocks[0][0], blocks[0][k], 0))
-        sync(); t = time.perf_counter()
+        sync()
+        t = time.perf_counter()
         for i in range(40):
             block = blocks[i % len(blocks)]
             list(stem.tiles(block[0], block[k], 0))
-        sync(); print(f"{name:26s} {1000 * (time.perf_counter() - t) / 40:6.2f} ms per 512 tile", flush=True)
+        sync()
+        print(f"{name:26s} {1000 * (time.perf_counter() - t) / 40:6.2f} ms per 512 tile", flush=True)

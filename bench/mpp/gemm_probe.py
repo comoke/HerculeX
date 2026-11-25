@@ -1,10 +1,12 @@
 """MPP matmul2d inside torch.mps.compile_shader: semantics check against numpy, then throughput on the stem's shape.
 D[M x 16] = A[M x 48] @ B[48 x 16], rows of A overlapping in memory with stride LD (16 = NHWC conv taps along x)."""
-import sys, time
+
+import time
+
 import numpy as np
 import torch
 
-SRC = r'''
+SRC = r"""
 #include <metal_stdlib>
 #include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
 using namespace metal;
@@ -24,16 +26,20 @@ kernel void gemm(device half *a [[buffer(0)]], device half *b [[buffer(1)]], dev
     auto mD = tensor(d + size_t(m0) * 16, dextents<int, 2>{16, SM}, array<int, 2>{1, 16});
     op.run(mA, mB, mD);
 }
-'''
+"""
 sync = torch.mps.synchronize
+
+
 def build(sm, simds, dtype):
     src = SRC.replace("SIMDS", str(simds)).replace("SM", str(sm)).replace("DTYPE", dtype)
     return torch.mps.compile_shader(src)
+
 
 def run(kernel, a, b, d, rows, ld, sm, simds):
     dims = torch.tensor(np.array([rows, ld], dtype=np.int32), device="mps")
     groups = rows // (sm * simds)
     kernel.gemm(a, b, d, dims, threads=[groups * simds * 32, 1, 1], group_size=[simds * 32, 1, 1])
+
 
 rng = np.random.default_rng(0)
 for ld in (48, 16):
@@ -49,7 +55,10 @@ for ld in (48, 16):
             run(k, a, b, d, rows, ld, sm, simds)
             got = d.cpu().numpy().astype(np.float64)
             err = np.abs(got - want)
-            print(f"ld_a={ld} dest={dtype}: max abs err {err.max():.5f} (values up to {np.abs(want).max():.1f}), exact-rounded matches {np.mean(got.astype(np_t) == want.astype(np_t)):.4f}", flush=True)
+            print(
+                f"ld_a={ld} dest={dtype}: max abs err {err.max():.5f} (values up to {np.abs(want).max():.1f}), exact-rounded matches {np.mean(got.astype(np_t) == want.astype(np_t)):.4f}",
+                flush=True,
+            )
         except Exception as e:
             print(f"ld_a={ld} dest={dtype}: FAILED {repr(e)[:700]}", flush=True)
 
@@ -64,10 +73,15 @@ for sm, simds in ((32, 4), (32, 1), (64, 4), (16, 4), (32, 8)):
         usable = rows // (sm * simds) * (sm * simds)
         for _ in range(2):
             run(k, a, b, d, usable, 16, sm, simds)
-        sync(); t = time.perf_counter()
+        sync()
+        t = time.perf_counter()
         for _ in range(9):
             run(k, a, b, d, usable, 16, sm, simds)
-        sync(); dt = time.perf_counter() - t
-        print(f"SM={sm} simdgroups/threadgroup={simds}: 9 GEMMs (30.8 GMAC, float dest, no accumulate) {1000 * dt:.2f} ms = {30.8 / dt / 1000:.2f} TMAC/s", flush=True)
+        sync()
+        dt = time.perf_counter() - t
+        print(
+            f"SM={sm} simdgroups/threadgroup={simds}: 9 GEMMs (30.8 GMAC, float dest, no accumulate) {1000 * dt:.2f} ms = {30.8 / dt / 1000:.2f} TMAC/s",
+            flush=True,
+        )
     except Exception as e:
         print(f"SM={sm} simds={simds}: FAILED {repr(e)[:400]}", flush=True)

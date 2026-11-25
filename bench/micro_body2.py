@@ -10,11 +10,11 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, os.getcwd())
-import torch  # noqa: E402
+import torch
 
-from ink.model import models  # noqa: E402
-from ink.model.reader import lane_reader  # noqa: E402
-from ink.model.reader_apple.neural_engine import EngineBody  # noqa: E402
+from ink.model import models
+from ink.model.reader import lane_reader
+from ink.model.reader_apple.neural_engine import EngineBody
 
 cache = Path(sys.argv[1])
 weights = models.chosen().weights
@@ -53,7 +53,7 @@ with torch.inference_mode():
         sync()
         t = time.perf_counter()
         for k in range(n):
-            out = net(inputs[k % len(inputs)])["ink"]
+            net(inputs[k % len(inputs)])["ink"]
         sync()
         print(f"{label:55s} {1000 * (time.perf_counter() - t) / n:7.2f} ms per tile", flush=True)
 
@@ -68,7 +68,11 @@ with torch.inference_mode():
     timed("torch MPS body fp32 NCHW", body32, x32, n=10)
     results["torch MPS fp32 NCHW"] = [sig(body32(v)["ink"][0, 0].cpu().numpy()) for v in x32]
     for batch in (2, 4):
-        xb = [torch.cat(xc[:batch] if len(xc) >= batch else xc * batch)[:batch].contiguous(memory_format=torch.channels_last)]
+        xb = [
+            torch.cat(xc[:batch] if len(xc) >= batch else xc * batch)[:batch].contiguous(
+                memory_format=torch.channels_last
+            )
+        ]
         for _ in range(2):
             body_cl(xb[0])["ink"]
         sync()
@@ -76,7 +80,10 @@ with torch.inference_mode():
         for _ in range(10):
             body_cl(xb[0])["ink"]
         sync()
-        print(f"{'torch MPS body fp16 channels_last, batch ' + str(batch):55s} {1000 * (time.perf_counter() - t) / 10 / batch:7.2f} ms per tile", flush=True)
+        print(
+            f"{'torch MPS body fp16 channels_last, batch ' + str(batch):55s} {1000 * (time.perf_counter() - t) / 10 / batch:7.2f} ms per tile",
+            flush=True,
+        )
 
 g = np.concatenate([m.ravel() for m in gold])
 print("\nagreement of ink probabilities with the float32 CPU network (and with stock's engine):")
