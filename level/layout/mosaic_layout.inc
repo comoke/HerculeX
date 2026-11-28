@@ -197,8 +197,7 @@ static int summarize_piece(PlacedPiece *p, HxLayoutPiece *place, const Field *ax
 }
 
 static void piece_flips(PlacedPiece *p, int curl) {
-    p->flip_rows = p->rows_up == (curl > 0);
-    p->flip_cols = (p->flip_rows != p->outward) == (curl > 0);
+    hx_layout_flips(p->rows_up, p->outward, curl, &p->flip_rows, &p->flip_cols);
 }
 
 static void orient_mask(PlacedPiece *p, HxLayoutPiece *place) {

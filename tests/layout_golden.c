@@ -60,5 +60,38 @@ int main(void) {
     require(hx_layout_turns((double[]){3, 9}, 2, rank, joints, 1, turns) && turns[0] == -1 &&
             turns[1] == 1,
         "the larger piece keeps its face");
+
+    const size_t rows = 20, cols = 30, cells = rows * cols;
+    double xyz[3 * 20 * 30];
+    for (int flip = 0; flip < 4; flip++) {
+        int rev_r = flip & 1, rev_c = (flip >> 1) & 1;
+        for (size_t r = 0; r < rows; r++) {
+            size_t sr = rev_r ? rows - 1 - r : r;
+            double z = 500. + 16. * sr;
+            for (size_t c = 0; c < cols; c++) {
+                size_t sc = rev_c ? cols - 1 - c : c;
+                double theta = 0.3 + 0.6 * sc / (cols - 1);
+                size_t at = r * cols + c;
+                xyz[at] = 5000. + 2000. * cos(theta);
+                xyz[cells + at] = 5000. + 2000. * sin(theta);
+                xyz[2 * cells + at] = z;
+            }
+        }
+        int rows_up = xyz[2 * cells + cols] > xyz[2 * cells];
+        int outward = hx_layout_outward(xyz, rows, cols, 5000., 5000.);
+        for (int curl = -1; curl <= 1; curl += 2) {
+            int fr = 0, fc = 0;
+            hx_layout_flips(rows_up, outward, curl, &fr, &fc);
+            size_t r0 = fr ? rows - 1 - 10 : 10, r1 = fr ? r0 - 1 : r0 + 1;
+            size_t c0 = fc ? cols - 1 - 15 : 15, c1 = fc ? c0 - 1 : c0 + 1;
+            size_t p0 = r0 * cols + c0, pr = r1 * cols + c0, pc = r0 * cols + c1;
+            double fx = xyz[p0] - 5000., fy = xyz[cells + p0] - 5000.;
+            double rx = fy * curl, ry = -fx * curl;
+            double col_right = (xyz[pc] - xyz[p0]) * rx + (xyz[cells + pc] - xyz[cells + p0]) * ry;
+            double row_up = (xyz[2 * cells + pr] - xyz[2 * cells + p0]) * curl;
+            require(col_right > 0 && row_up < 0,
+                "a piece seen from the middle is never mirrored and curl only sets its top");
+        }
+    }
     return 0;
 }

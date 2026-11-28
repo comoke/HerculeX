@@ -51,6 +51,11 @@ int hx_layout_outward(const double *xyz, size_t rows, size_t columns, double x, 
     return vote < 0;
 }
 
+void hx_layout_flips(int rows_up, int outward, int curl, int *flip_rows, int *flip_cols) {
+    *flip_rows = rows_up == (curl > 0);
+    *flip_cols = *flip_rows == outward;
+}
+
 static size_t word_count(int columns) { return ((size_t)columns + ALIGNMENT - 1) / ALIGNMENT; }
 
 static uint64_t *pack_masks(const HxLayoutPiece *pieces, size_t count, Mask *masks) {

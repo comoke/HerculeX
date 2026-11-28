@@ -17,6 +17,7 @@ typedef struct {
 } HxLayoutJoin;
 
 int hx_layout_outward(const double *xyz, size_t rows, size_t columns, double x, double y);
+void hx_layout_flips(int rows_up, int outward, int curl, int *flip_rows, int *flip_cols);
 int hx_pack_layout(HxLayoutPiece *pieces, size_t count, double padding, size_t *kept);
 int hx_layout_mosaics(HxLayoutPiece *pieces, size_t count, const size_t *rank,
     const HxLayoutJoin *joins, size_t join_count, size_t *order);
