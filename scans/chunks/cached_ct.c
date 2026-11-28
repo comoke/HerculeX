@@ -554,6 +554,9 @@ static int ct_catalogue(const char *sample, const char *scan, char **url) {
             json_object_array_get_idx(json_object_object_get(origin, "access_roots"), 0);
         const char *path = json_object_get_string(json_object_object_get(origin, "path"));
         const char *base = json_object_get_string(json_object_object_get(root, "url"));
+        if (path && strstr(path, ".vcd3d.")) {
+            continue;
+        }
         status = -1;
         if (path && base) {
             if (!strcmp(base, ct_origin)) {
